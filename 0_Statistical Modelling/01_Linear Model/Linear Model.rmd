@@ -1,0 +1,143 @@
+---
+title: "Linear Model"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Fitted Model
+```{r}
+(catheter.df <- read.table("catheter-1.data", header = TRUE))
+catheter.lm <- lm(ca~., data=catheter.df)
+summary(catheter.lm)
+```
+
+## Estimated Coefficients
+For linear model $Y \sim N(\mu,\sigma^2I)$, the link function is $\mu=X\beta$, and the estimated coefficients is $\hat{\beta}=(X^tX)^{-1}X^tY$.
+
+Given U=MV, then $\mu_U=M\mu_V$, we can get $\mu_B=(X^tX)^{-1}X^t(X\beta)=\beta$
+```{r}
+x1 <- catheter.df[,1]
+x2 <- catheter.df[,2]
+X <- cbind(1,x1,x2)
+y <- matrix(catheter.df[,3],12,1)
+(BETAhat <- solve(t(X)%*%X)%*%t(X)%*%y)
+```
+
+## Estimated $\sigma^2$ (=$RSE^2$)
+From theory, $\frac{RSS}{\sigma^2}\sim\chi^2_{n-k-1}$, thus $\frac{E(RSS)}{\sigma^2}=n-k-1 \to \sigma^2=\frac{E(RSS)}{n-k-1}$
+```{r}
+res = residuals(catheter.lm)
+(sig2hat = sum(res^2)/(12-2-1))
+(rse = sqrt(sig2hat))
+```
+
+## Covariance Matrix
+Given U=MV, then $\Sigma_U=M\Sigma_VM^t$, we can get $\Sigma_\hat{\beta}=(X^tX)^{-1}X^t\sigma^2I((X^tX)^{-1}X^t)^t=(X^tX)^{-1}X^t\sigma^2IX(X^tX)^{-1}=\sigma^2(X^tX)^{-1}$
+```{r}
+(XtXinv <- solve(t(X)%*%X))
+summary(catheter.lm)$cov.unscaled
+(catheter.cov <- sig2hat*XtXinv)
+```
+
+## Hypothesis Test
+Say, if we want to test $H_0: \hat{\beta_1}=0$, we can calculate $t-stat=\frac{\hat{\beta_1}-0}{se(\hat{\beta_1})}$, then $p-value=2*Pr(t_{12-9-1}\ge|t-stat|)$
+```{r}
+2*(1-pt(BETAhat[2,1]/sqrt(catheter.cov[2,2]), 12-2-1))
+```
+
+Say, if we want to get a (1-$\alpha$)% confidence interval for $\hat{\beta_1}$, then $\hat{\beta_1}$ $\pm$ $t_{12-9-1}(1-\alpha/2)*se(\hat{\beta_1})$
+```{r}
+(max = BETAhat[2,1] + sqrt(catheter.cov[2,2]) * qt(1-0.05/2, 12-2-1))
+(min = BETAhat[2,1] - sqrt(catheter.cov[2,2]) * qt(1-0.05/2, 12-2-1))
+```
+
+## $R^2$
+Correlation (otherwise known as “R”) is a number between 1 and -1 where a value of +1 implies that an increase in x results in some increase in y, -1 implies that an increase in x results in a decrease in y, and 0 means that there isn’t any relationship between x and y. Like correlation, R² tells you how related two things are. However, we tend to use R² because it’s easier to interpret. R² measures how much of the total variability is explained by our model.
+
+Sum of Squares Total/SST: $\sum_{i = 1}^{n}{(y_i - \bar{y})^2}$ = Sum of Squares Regression/SSR: $\sum_{i = 1}^{n}{(\hat{y_i} - \bar{y})^2}$ + Sum of Squares Error/SSE/RSS: $\sum_{i = 1}^{n}{(y_i - \hat{y_i})^2}$
+
+$R^2=\frac{SSR}{SST}$
+```{r}
+yhat = X%*%BETAhat
+sst = sum((y-mean(y))^2)
+ssr = sum((yhat-mean(y))^2)
+(rs = ssr/sst)
+```
+
+Adjusted $R^2$ = $1 – \frac{(1 – R^2) * (n – 1)}{(n – k – 1)}$. The adjusted $R^2$ is always smaller than the $R^2$, as it penalises excessive use of variables.
+```{r}
+(1- (1-rs)*(12-1)/(12-2-1))
+```
+
+## F-Test
+The F-statistic for the added variable test is defined in terms of the residual sums of squares (RSS) for the two models and the number of explanatory variables k in each model:
+\[ f_0 = \frac{(RSS_S-RSS_F)/(k_F-k_S)}{RSS_F/(n-k_F-1)}\] p-value=Pr($F \ge f_0$) where F $\sim$ $F_{k_F-k_S, n-k_F-1}$ e.g. the bottom line of the output from summary is an added F-test where the submodel is the null model (just contains the intercept) and the full model contains all of the regressors.
+
+Setup
+```{r}
+null.lm<-lm(ca~1,data=catheter.df)
+ht.lm<-lm(ca~ht,data=catheter.df)
+wt.lm<-lm(ca~wt,data=catheter.df)
+full.lm<-lm(ca~ht+wt,data=catheter.df)
+```
+
+null vs. height
+```{r}
+anova(null.lm, ht.lm)
+```
+
+null vs. weight
+```{r}
+anova(null.lm, wt.lm)
+```
+
+height vs. full
+```{r}
+anova(ht.lm, full.lm)
+```
+
+weight vs. full
+```{r}
+anova(wt.lm, full.lm)
+```
+
+full vs. null
+```{r}
+anova(null.lm, full.lm)
+```
+
+We can conclude that we need height or weight, but when one is present, the other provide little addtional information (there's probably some correlation between two variables)
+
+## Predicted Values
+Applying the result to ht=44 and wt=35, the expected value is
+```{r}
+new = cbind(1, 44, 35)
+(estimate = new %*% BETAhat)
+```
+
+Estimated Variance
+```{r}
+(variance = new %*% catheter.cov %*% t(new))
+```
+
+95% confidence interval for the expected value
+```{r}
+(max = estimate + sqrt(variance) * qt(1-0.05/2, 12-2-1))
+(min = estimate - sqrt(variance) * qt(1-0.05/2, 12-2-1))
+```
+
+95% prediction interval (an interval for a single observation) for the expected value
+```{r}
+(max = estimate + sqrt(catheter.cov[2,2]+variance) * qt(1-0.05/2, 12-2-1))
+(min = estimate - sqrt(catheter.cov[2,2]+variance) * qt(1-0.05/2, 12-2-1))
+```
+
+Using 'predict' function
+```{r}
+new.df <- data.frame(ht=44, wt=35)
+predict(catheter.lm, new.df, interval="confidence")
+predict(catheter.lm, new.df, interval="prediction")
+```

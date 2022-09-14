@@ -1,0 +1,178 @@
+---
+title: "Lab09"
+author: "Channing_503128649"
+date: "08/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# The Data Set
+```{r}
+library(tree)
+library(randomForest)
+library(gbm)
+```
+
+
+```{r}
+biodeg = read.csv("biodeg.csv", stringsAsFactors=TRUE)
+head(biodeg)
+```
+# Tasks
+## Training and Test Data
+(@) Randomly divide the data set into two halves, and save them in two data frames named train and test.
+```{r}
+set.seed(769)
+index <- sample(rep(1:2, length.out=nrow(biodeg)))
+train <- biodeg[index ==1, ]
+test <- biodeg[index ==2, ]
+```
+
+## Classification trees
+(@) Fit an unpruned classification tree to the training data. Plot it (as pretty as you can). Identify three most important variables from this classification tree.
+```{r}
+r = tree(class ~ ., data=train)
+plot(r)
+text(r, pretty=1, cex=0.5)
+```
+
+For the heights of splits are proportional to deviance reductions, so we can see from the tree that the 3 most important variables are F02CN, F04CN and nCb.
+
+(@) Compute the training and test errors. Write a function errors(fit, fhat.tree, train, test) where fit is the output of tree() and fhat.tree is a function that uses fit and computes the class labels for a data set (an argument of fhat.tree).
+
+```{r}
+fhat.tree <- function(fit, dataset){
+  p = predict(fit, dataset)
+  yhat = levels(dataset$class)[apply(p, 1, which.max)]
+  yhat
+}
+
+errors <- function(fit, fhat.tree, train, test){
+  train.error = mean(fhat.tree(fit, train) != train$class)
+  test.error = mean(fhat.tree(fit, test) != test$class)
+  c(train.error, test.error)
+}
+
+(errors(r, fhat.tree, train, test))
+```
+
+(@) Consider pruning the tree using cross-validation with deviance. Produce a pruned tree based by selecting a cost-complexity parameter value, and plot it. Compute the training and test errors for this pruned tree. Do you think the pruning helps?
+```{r}
+cv.r = cv.tree(r)
+j.min = which.min(cv.r$dev)
+k = cv.r$k[j.min]
+r2 = prune.tree(r, k=k)
+plot(r2)
+text(r2, pretty=0)
+(errors(r2, fhat.tree, train, test))
+```
+
+The tree is considerably smaller, which is computational efferent, so I think pruning helps in the trade-off of accuracy.
+
+(@) Consider pruning the tree using cross-validation with misclassification rates. Produce a pruned tree by selecting a tree size, and plot it. Compute the training and test errors for this pruned tree. Do you think the pruning helps?
+```{r}
+cv.r = cv.tree(r, FUN = prune.misclass)
+j.min = which.min(cv.r$dev)
+size = cv.r$size[j.min]
+r3 = prune.tree(r, best=size)
+plot(r3)
+text(r3, pretty=1, cex=0.5)
+(errors(r3, fhat.tree, train, test))
+```
+It produced the exactly the same tree as the unpruned tree, so I don't think pruning helps this time.
+
+## Bagging
+(@) Produce a Bagging model for the training data with 500 trees construnted. What are the three most important variables, in terms of decreasing the Gini index, according to Bagging?
+```{r}
+p = ncol(biodeg) - 1
+(r = randomForest(class ~ ., data=train, mtry=p, importance=TRUE, ntree=500))
+round(importance(r), 2)
+```
+
+SpMaxBm, SM6Bm and SpMaxL are the three most important variables according to bagging.
+
+(@) Compute both the training and test errors of this Bagging predictor. Is your test error similar to the OOB estimate? Do you think Bagging helps prediction here?
+```{r}
+yhat = predict(r, train)
+(mean(train$class != yhat))
+yhat = predict(r, test)
+(mean(test$class != yhat))
+```
+
+The test set error is pretty close to OOB error, and the error rate slightly decreased. So I think bagging helps prediction.
+
+## Random Forests
+(@) Produce a Random Forest model with 500 trees constructed. What are the three most important variables, in terms of accuracy, according to Random Forest?
+```{r}
+(r = randomForest(class ~ ., data=train, mtry=10, importance=TRUE, ntree=500))
+round(importance(r), 2)
+```
+SpMaxBm, SpMaxL and SM6Bm are the most three important variables according to random forrest.
+
+(@) Compute both the training and test errors of this Random Forest predictor. Is your test error similar to the OOB estimate? Do you think the tweak used by Random Forest helps prediction here?
+```{r}
+yhat = predict(r, train)
+(mean(train$class != yhat))
+yhat = predict(r, test)
+(mean(test$class != yhat))
+```
+
+The test set error is pretty close to OOB error, and the error rate was even better than that with bagging. So I think it helps prediction.
+
+## Boosting
+(@) Produce a Boosting model, with 500 trees constructed. What are the three most important variables, according to Boosting?
+```{r}
+train$class = as.integer(train$class)-1
+test$class = as.integer(test$class)-1
+(r = gbm(class ~ ., data=train, distribution="bernoulli", n.trees=500))
+summary(r)
+```
+
+SpMaxBm, SdssC and SpMaxL are the three most important variables according to boosting.
+
+(@) Compute both the training and test errors of this Boosting predictor. Do you think Boosting helps prediction here?
+```{r}
+yhat = (predict(r, train, type="response") > 0.5)
+(mean(train$class != yhat))
+yhat = (predict(r, test, type="response") > 0.5)
+(mean(test$class != yhat))
+```
+It helps in regards to the pruned decision tree, but the test error could be too optimistic compared to OOB error from bagging and random forest.
+
+(@) Demonstrate that Boosting can overfit.
+```{r}
+r = gbm(class ~ ., data=train, distribution="bernoulli", n.trees=200000, n.cores=8 )
+yhat = (predict(r, train, type="response") > 0.5)
+(mean(train$class == yhat))
+yhat = (predict(r, test, type="response") > 0.5)
+(mean(test$class == yhat))
+```
+
+# Summary
+In this lab, we played around QSAR biodegradation data set which uses 41 molecular descriptors (SpMax_L, etc.) to predict class labels (ready biodegradable (RB) and not ready biodegradable (NRB)).
+
+We used the tree family to do the classification. We went from the foundation - a single decision tree, to bagging which over-samples the data set with replacement so that different models can be combined to have a unbiased estimate, to random forest with the tweak to use only some of the variables to find the optimal cutoff points, to boosting that gradually makes to a better prediction.
+
+We found that SpMaxBm is the common important variable recognised by all the models, and all the models have a fair prediction of the class labels.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

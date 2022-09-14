@@ -1,0 +1,210 @@
+---
+title: "Lab08"
+author: "Channing_503128649"
+date: "03/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup
+```{r}
+library(MASS)
+library(class)
+library(gam)
+library(nnet)
+library(e1071)
+library(parallel)
+```
+
+# Import
+```{r}
+vc = read.csv("vertebral-column.csv", stringsAsFactors=TRUE)
+head(vc)
+```
+# Exploration
+(@) Create a pairwise scatterplot, with observations of different classes shown in different colors.
+```{r}
+plot(vc[,-7], col=as.numeric(vc[,7])+1)
+```
+# Classification
+Five classification methods are listed in the next 5 tasks. Use each of them to build a model for the data set vc and predict the class labels of the observations that are used to build the model. For each, compute the confusion matrix and (resubstitution) classification accuracy.
+
+```{r}
+r = vector("list", 5)
+A = vector("numeric", 5)
+names(r) = c("LDA", "QDA", "NB", "MLR", "KNN")
+names(A) = c("LDA", "QDA", "NB", "MLR", "KNN")
+```
+
+
+(@) Linear discriminant analysis
+```{r}
+r[[1]] = lda(class ~ ., data=vc)
+yhat = predict(r[[1]], newdata=vc)$class
+table(vc$class, yhat)
+(A[1] = mean(vc$class == yhat))
+```
+
+(@) Quadratic discriminant analysis
+```{r}
+r[[2]] = qda(class ~ ., data=vc)
+yhat = predict(r[[2]], newdata=vc)$class
+table(vc$class, yhat)
+(A[2] = mean(vc$class == yhat))
+```
+
+(@) Naive Bayes
+```{r}
+r[[3]] = naiveBayes(class ~ ., data=vc)
+yhat = predict(r[[3]], newdata=vc)
+table(vc$class, yhat)
+(A[3] = mean(vc$class == yhat))
+```
+
+(@) Multinomial logistic regression
+```{r}
+r[[4]] = multinom(class ~ ., data=vc)
+yhat = predict(r[[4]], newdata=vc)
+table(vc$class, yhat)
+(A[4] = mean(vc$class == yhat))
+```
+
+(@) K-nearest neighbours (with K=10)
+```{r}
+yhat = knn(train=vc[,-7], test=vc[,-7], cl=vc[,7], k=10)  # K = 1
+table(vc[,7], yhat)
+(A[5] = mean(vc$class == yhat))
+```
+
+# Primary Performance Evaluation
+(@) Present your resulting classification accuracy for all five classification methods in a table (in whatever format)
+```{r}
+names(A[which.max(A)])
+length(unique(vc$class))
+```
+All of them do a better job (Accuracy >80%) than the random guess (Accuracy = 33.33%), where KNN performed the best.
+
+# Multiple Logistic Regression and Generalised Additive Models
+(@)
+Create a response variable from variable class so that both classes DH and SL are relabelled as AB (Abnormal).
+```{r}
+vc$newclass = as.factor(ifelse(vc$class=="DH" | vc[, 7]=="SL","AB", "NO"))
+```
+Use glm() to build a multiple logistic regression model for this new class variable, and compute the confusion matrix and resubstitution classification accuracy.
+```{r}
+r1 = glm(newclass ~ .-class, data=vc, family=binomial)
+p = predict(r1, newdata=vc, type="response")
+yhat = as.numeric(p > 0.5) + 1
+table(vc$newclass, levels(vc$newclass)[yhat])
+(A1 = mean(vc$newclass == levels(vc$newclass)[yhat]))
+```
+
+(@)Use step() to find the AIC-selected model, with backward selection. Which variables are removed by the AIC?
+```{r}
+r1 = step(r1, type="backward")
+summary(r1)
+```
+llr, ss are removed by AIC
+
+(@) Extend the AIC-selected model with gam() so that each linear term is replaced with a smoothing spline of 5 degrees of freedom. Take a visual approach to reasonably lower the degrees of freedom in each term. For your chosen model, compute the confusion matrix and classification accuracy.
+```{r}
+par(mfrow=c(2,3))
+r1 = gam(newclass ~ s(pi, 5) + s(lla, 5) + s(ss, 5) + s(pr,5) + s(gos, 5), data=vc, family=binomial())
+summary(r1)
+plot(r1)
+```
+pi, lla, pr seem to be quadratic regressions and ss, gos seem to linear regression
+
+```{r}
+r1 = gam(newclass ~ s(pi, 2) + s(lla, 2) + ss + s(pr,2) + gos, data=vc, family=binomial())
+p = predict(r1, vc)
+yhat = as.numeric(p > 0.5) + 1
+table(vc$newclass, levels(vc$newclass)[yhat])
+(A1 = mean(vc$newclass == levels(vc$newclass)[yhat]))
+```
+
+# Cross-validation and Parallel Computing
+(@) 
+Reconsider the 3-class problem studied in Questions 2-7. Use 10 repetitions of 10-fold cross-validation to evaluate the performance of the 5 classification methods. Present your resulting classification accuracy of all five classification methods in a table. Comment on the results.
+```{r}
+vc = read.csv("vertebral-column.csv", stringsAsFactors=TRUE)
+
+n = nrow(vc)       # total number of observations
+c = 1:5  # all the classifiers for comparison
+R = 5                   # number of repetitions
+K = 10                  # K-fold CV
+a = matrix(nrow=R*K, ncol=length(c))   # pre-allocate space
+
+# indies of a test test in CV
+# i -- which fold
+# n -- sample size
+# K -- total number of folds
+
+test.set = function(i, n, K=10) {
+  if(i < 1 || i > K) 
+    stop(" i out of range (1, K)")
+  start = round(1 + (i-1) * n / K)
+  end = ifelse(i == K, n, round(i * n / K))
+  start:end
+}
+
+set.seed(769)           # set a random seed
+
+for(i in 1:R) {                  # for each repetition
+  ind = sample(n)
+  for(k in 1:K) {                # for each fold
+    index = ind[test.set(k, n, K)]
+    test = vc[index,]
+    train = vc[-index,]
+    for(j in 1:length(c)) {     # for each classifier
+      if (j ==1 || j ==2) yhat = predict(r[[1]], newdata=test)$class
+      if (j ==3 || j ==4) yhat = predict(r[[j]], newdata=test)
+      if (j == 5) yhat = knn(train=train[,-7], test=test[,-7], cl=train[,7], k=10)
+      a[K*(i-1)+k,j] = mean(test$class == yhat)
+    }
+  }
+}
+
+head(a)
+(pe = cbind(c=c, a=colMeans(a)))
+```
+During the cross validation, MLR is the best out of the first 5 classifiers.
+
+(@) Modify your code so that parallel computing can be used, in which each job running in parallel is only for the computation about one fold out of 10 (i.e., one training set and one test set). Make sure that the same subsamples are used by different methods and that the results are reproducible. Compare timings with 1, 5, 10, 20 cores.
+```{r}
+
+```
+Encapsulate the function for the each fold, and then compute the accurracy in parallel. 5 cores should be 5 times faster than 1 core, 10 cores should be 2 times faster than 5 cores, but 20 cores wouldn't see a significant improvement as the performance is plateaued by folds rather than the actual computing inside the fold.
+
+# Summary
+In this lab, we look into the classification problems.
+
+Firstly, we compared among Linear discriminant analysis, Quadratic discriminant analysis, Naive Bayes, Multinomial logistic regression, K-nearest neighbours (with K=10), and found that KNN performed the best. The result is trustworthy as in KNN, we don't assume normal distributions for all predictors, but we do have to take computational cost into considerations if the data set is large as KNN is memory based method that needs more resources as the data set grows.
+
+Secondly, we transformed the reponse variables into 2 classes ('NO' and 'AB') rather than 3 classes ('NO', 'DH', 'SL') and then compared between Multiple Logistic Regression and Generalised Additive Models. We can see that GAM performed slightly better, but it needs an extra step to tune the pynonomial degrees in each smoothing splines.
+
+Lastly, we took advantage of the computational power to do the cross validation and the parallel computing more efficiently to better our models.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
