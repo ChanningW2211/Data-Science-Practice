@@ -109,7 +109,7 @@ full vs. null
 anova(null.lm, full.lm)
 ```
 
-We can conclude that we need height or weight, but when one is present, the other provide little addtional information (there's probably some correlation between two variables)
+We can conclude that we need height or weight, but when one is present, the other provides little addtional information (there's probably some correlation between two variables)
 
 ## Predicted Values
 Applying the result to ht=44 and wt=35, the expected value is
@@ -125,14 +125,14 @@ Estimated Variance
 
 95% confidence interval for the expected value
 ```{r}
-(max = estimate + sqrt(variance) * qt(1-0.05/2, 12-2-1))
 (min = estimate - sqrt(variance) * qt(1-0.05/2, 12-2-1))
+(max = estimate + sqrt(variance) * qt(1-0.05/2, 12-2-1))
 ```
 
 95% prediction interval (an interval for a single observation) for the expected value
 ```{r}
-(max = estimate + sqrt(catheter.cov[2,2]+variance) * qt(1-0.05/2, 12-2-1))
-(min = estimate - sqrt(catheter.cov[2,2]+variance) * qt(1-0.05/2, 12-2-1))
+(min = estimate - sqrt(sig2hat+variance) * qt(1-0.05/2, 12-2-1))
+(max = estimate + sqrt(sig2hat+variance) * qt(1-0.05/2, 12-2-1))
 ```
 
 Using 'predict' function
